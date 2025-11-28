@@ -147,6 +147,9 @@ def resample_10min_modulus(processed_data_dict):
     """
     Takes a dictionary of DataFrames, calculates the modulus of PSum (W),
     and resamples the data to a 10-minute average.
+    
+    The function now retains NaN values for intervals where no data exists,
+    allowing those timestamps to be shown as blanks in the Excel output.
     """
     resampled_data = {}
     
@@ -160,8 +163,8 @@ def resample_10min_modulus(processed_data_dict):
             # '10T' specifies 10 minutes.
             df_resampled = df[RESAMPLED_PSUM_NAME].resample('10T').mean().to_frame()
             
-            # 3. Drop rows where resampling resulted in NaN (e.g., end of data)
-            df_resampled = df_resampled.dropna()
+            # 3. Retain rows with NaN to show blank cells for missing 10-minute intervals
+            # Removed df_resampled = df_resampled.dropna() based on user request to show blanks for missing intervals.
             
             resampled_data[sheet_name] = df_resampled
         # Note: We skip files where PSum wasn't found or wasn't numeric after cleaning
