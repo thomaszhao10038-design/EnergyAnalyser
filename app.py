@@ -15,10 +15,9 @@ st.markdown("""
     Upload your raw energy data CSV files (up to 10) to extract **Date**, **Time**, and **PSum** (Total Active Power) 
     and consolidate them into a single Excel file.
     
-    This app is configured to correctly read your specific log format:
-    1. It skips the first two metadata/header rows.
-    2. It uses the third row (index 2) as the main column header.
-    3. It extracts 'Date', 'Time', and the 'PSum' (Total Active Power) column.
+    The app logic has been updated to:
+    1. **Ensure the 'Time' column (Index 1) is correctly extracted.**
+    2. **Target the correct 'PSum' column (Index 40) based on your file's specific header structure.**
 """)
 
 # --- Constants for Data Processing ---
@@ -26,10 +25,11 @@ st.markdown("""
 # skip initial 2 rows, use row 2 (index 2) as header
 HEADER_ROW_INDEX = 2
 # Column indices for the specific data we want (0-based)
+# Corrected PSum index to 40 based on file structure feedback
 COLUMNS_TO_EXTRACT = {
-    0: 'Date',     # First column is Date
-    1: 'Time',     # Second column is Time
-    39: 'PSum'     # The 40th column is Total Active Power(W), which you call PSum
+    0: 'Date',     # First column
+    1: 'Time',     # Second column
+    40: 'PSum'     # Corrected index for the 'PSum' column (Total Active Power)
 }
 
 # --- Function to Process Data ---
@@ -46,35 +46,32 @@ def process_uploaded_files(uploaded_files):
         try:
             # 1. Read the CSV using the specified header row
             # header=2 means use the 3rd row (0-indexed) as the column names
-            # skiprows=1 means skip the very first row (ProductSN...)
-            # NOTE: For the raw file you uploaded, using header=2 handles the first two lines correctly.
+            # skiprows=[0] means skip the very first row (ProductSN...)
             df_full = pd.read_csv(
                 uploaded_file, 
                 header=HEADER_ROW_INDEX, 
                 skiprows=[0], # Skip the first row (ProductSN)
-                encoding='ISO-8859-1' # Use a robust encoding to handle file variations
+                encoding='ISO-8859-1', # Use a robust encoding
+                low_memory=False # Ensures correctness for large files
             )
             
-            # 2. Extract only the required columns by their index
-            # This is robust because we use fixed indices (0, 1, 39)
+            # 2. Extract only the required columns by their index (iloc)
+            # This is robust to small changes in header text.
+            col_indices = list(COLUMNS_TO_EXTRACT.keys())
+            df_extracted = df_full.iloc[:, col_indices]
             
-            # Create a dictionary for remapping columns
-            col_map = {idx: name for idx, name in COLUMNS_TO_EXTRACT.items()}
-            
-            # Select the columns by their location (iloc)
-            # The indices are applied after the header row has been read and applied
-            df_extracted = df_full.iloc[:, list(col_map.keys())]
-            
-            # 3. Rename the columns to 'Date', 'Time', 'PSum'
-            df_extracted.columns = col_map.values()
+            # 3. Rename the columns to the user-specified names
+            df_extracted.columns = COLUMNS_TO_EXTRACT.values()
             
             # 4. Clean the filename for the Excel sheet name
-            sheet_name = filename.split('.')[0][:31] # Max 31 chars for Excel sheet name
+            # Max 31 chars for Excel sheet name
+            sheet_name = filename.replace('.csv', '').replace('.', '_').strip()[:31]
             
             processed_data[sheet_name] = df_extracted
             
         except Exception as e:
-            st.error(f"Error processing file {filename}: {e}")
+            # Display a more informative error message
+            st.error(f"Error processing file {filename}. Ensure it has the expected structure and columns (0, 1, 40). Error: {e}")
             continue
             
     return processed_data
@@ -86,6 +83,7 @@ def to_excel(data_dict):
     Takes a dictionary of DataFrames and writes them to an in-memory Excel file.
     """
     output = BytesIO()
+    # Use pandas to write multiple sheets
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for sheet_name, df in data_dict.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -111,7 +109,7 @@ if __name__ == "__main__":
     # Processing and Download Button
     if uploaded_files:
         
-        st.info(f"Processing {len(uploaded_files)} file(s)...")
+        st.info(f"Processing {len(uploaded_files)} file(s) with fixed indices (Date: 0, Time: 1, PSum: 40)...")
         
         # 1. Process data
         processed_data_dict = process_uploaded_files(uploaded_files)
