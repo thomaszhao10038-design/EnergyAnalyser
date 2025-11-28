@@ -75,9 +75,9 @@ st.sidebar.header("📄 CSV File Settings")
 start_row_num = st.sidebar.number_input(
     "Data reading starts from (Row Number)",
     min_value=1,
-    value=4,
+    value=3, # UPDATED DEFAULT: Changed from 4 to 3
     key='start_row_num',
-    help="The row number in the CSV file that contains the column headers (e.g., 'Date', 'Time', 'UA'). The default is Row 4."
+    help="The row number in the CSV file that contains the column headers (e.g., 'Date', 'Time', 'UA'). The default is Row 3." # Updated help text
 )
 
 selected_date_format = st.sidebar.selectbox(
