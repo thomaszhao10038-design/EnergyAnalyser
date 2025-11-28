@@ -180,14 +180,42 @@ def to_excel(data_dict):
     """
     Takes a dictionary of DataFrames and writes them to an in-memory Excel file.
     The index is NOT included (index=False).
+    
+    Explicitly sets column formats to text using xlsxwriter to prevent merging 
+    of Date and Time columns by Excel.
     """
     output = BytesIO()
-    # Use pandas ExcelWriter to write to BytesIO
+    # Use pandas ExcelWriter with 'xlsxwriter' engine
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for sheet_name, df in data_dict.items():
-            # index=False 
             df.to_excel(writer, sheet_name=sheet_name, index=False)
-    
+
+            # --- Explicitly set column formats to Text (Crucial Fix) ---
+            
+            # Get the xlsxwriter workbook and worksheet objects.
+            workbook = writer.book
+            worksheet = writer.sheets[sheet_name]
+            
+            # Define a text format (num_format: '@')
+            text_format = workbook.add_format({'num_format': '@'})
+            
+            # Find column indices and apply the text format
+            try:
+                if 'Date' in df.columns:
+                    date_col_index = df.columns.get_loc('Date')
+                    # Apply text format to the entire column
+                    worksheet.set_column(date_col_index, date_col_index, 12, text_format) 
+                
+                if 'Time' in df.columns:
+                    time_col_index = df.columns.get_loc('Time')
+                    # Apply text format to the entire column
+                    worksheet.set_column(time_col_index, time_col_index, 10, text_format)
+            except Exception as e:
+                # Log any errors during explicit formatting but don't stop execution
+                print(f"Error applying explicit xlsxwriter formats: {e}")
+            # --------------------------------------------------------
+            
+    output.seek(0)
     return output.getvalue()
 
 
