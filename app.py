@@ -117,27 +117,28 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
                 )
 
             # 6. Format Date and Time columns separately after parsing for correction
-            # First, parse the combined string to a datetime object, enforcing DD/MM/YYYY format.
+            # Combine the two raw columns ('Date' and 'Time') from the CSV for reliable datetime parsing.
+            combined_dt_str = df_extracted['Date'].astype(str) + ' ' + df_extracted['Time'].astype(str)
+
             datetime_series = pd.to_datetime(
-                df_extracted['Date'] + ' ' + df_extracted['Time'], 
+                combined_dt_str, 
                 errors='coerce',
                 # Explicitly define the format (DD/MM/YYYY) to prevent misinterpretation
                 format='%d/%m/%Y %H:%M:%S'
             )
             
-            # Update 'Date' and 'Time' columns using the validated datetime series
-            # This ensures the date is correct and the format is consistent (DD/MM/YYYY)
-            df_extracted['Date'] = datetime_series.dt.strftime('%d/%m/%Y')
-            df_extracted['Time'] = datetime_series.dt.strftime('%H:%M:%S')
-            
-            # GUARANTEE SEPARATION: Explicitly re-index the DataFrame to ensure the desired column order
-            FINAL_COLUMNS = ['Date', 'Time', PSUM_OUTPUT_NAME]
-            df_extracted = df_extracted[FINAL_COLUMNS]
+            # GUARANTEE SEPARATION: Create a new DataFrame explicitly with separated columns
+            df_final = pd.DataFrame({
+                'Date': datetime_series.dt.strftime('%d/%m/%Y'),
+                'Time': datetime_series.dt.strftime('%H:%M:%S'),
+                PSUM_OUTPUT_NAME: df_extracted[PSUM_OUTPUT_NAME] # Keep the PSum data from the original extracted DF
+            })
 
             # 7. Clean the filename for the Excel sheet name
             sheet_name = filename.replace('.csv', '').replace('.', '_').strip()[:31]
             
-            processed_data[sheet_name] = df_extracted
+            # Use the new, explicitly constructed DataFrame for the output
+            processed_data[sheet_name] = df_final
             
         except Exception as e:
             # Catch all other unexpected exceptions
