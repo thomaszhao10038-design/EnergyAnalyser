@@ -277,7 +277,7 @@ if __name__ == "__main__":
     if uploaded_files:
         
         # Display the column letters and settings being used for user confirmation
-        st.info(f"Processing {len(uploaded_files)} file(s) using columns: Date: {date_col_str.upper()}, Time: {time_col_str.upper()}, PSum: {ps_um_col_str.upper()}. Data reading starts from **Row {start_row_num}** using **{selected_date_format}** format and delimiter **'{delimiter_input}'**.")
+        st.info(f"The following **GLOBAL SETTINGS** are being applied to all {len(uploaded_files)} file(s): Columns: Date: {date_col_str.upper()}, Time: {time_col_str.upper()}, PSum: {ps_um_col_str.upper()}. Reading starts from **Row {start_row_num}** using **{selected_date_format}** format and delimiter **'{delimiter_input}'**.")
         
         # 1. Process data 
         processed_data_dict = process_uploaded_files(
