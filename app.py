@@ -78,6 +78,9 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
 
     col_indices = list(columns_config.keys())
     
+    # Define the PSum output column name for consistency in cleaning
+    ps_um_output_name = 'PSum (W)' 
+    
     for uploaded_file in uploaded_files:
         filename = uploaded_file.name
         
@@ -105,9 +108,10 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             df_extracted.columns = columns_config.values()
             
             # 5. Data Cleaning: Convert PSum to numeric, handling potential errors
-            if 'PSum' in df_extracted.columns:
-                df_extracted['PSum'] = pd.to_numeric(
-                    df_extracted['PSum'], 
+            # Use the defined output name for cleaning
+            if ps_um_output_name in df_extracted.columns:
+                df_extracted[ps_um_output_name] = pd.to_numeric(
+                    df_extracted[ps_um_output_name], 
                     errors='coerce' # Convert non-numeric values to NaN
                 )
             
@@ -145,10 +149,11 @@ if __name__ == "__main__":
         time_col_index = excel_col_to_index(time_col_str)
         ps_um_col_index = excel_col_to_index(ps_um_col_str)
         
+        # Define the columns to extract, using 'PSum (W)' as the output name
         COLUMNS_TO_EXTRACT = {
             date_col_index: 'Date',
             time_col_index: 'Time',
-            ps_um_col_index: 'PSum'
+            ps_um_col_index: 'PSum (W)' # Changed column name to include unit (W)
         }
         
     except ValueError as e:
