@@ -164,7 +164,7 @@ def resample_10min_modulus(processed_data_dict):
             df_resampled = df[RESAMPLED_PSUM_NAME].resample('10T').mean().to_frame()
             
             # 3. Retain rows with NaN to show blank cells for missing 10-minute intervals
-            # Removed df_resampled = df_resampled.dropna() based on user request to show blanks for missing intervals.
+            # This is the desired behavior for the second output file.
             
             resampled_data[sheet_name] = df_resampled
         # Note: We skip files where PSum wasn't found or wasn't numeric after cleaning
@@ -241,6 +241,17 @@ if __name__ == "__main__":
             st.subheader(f"Preview of: {first_sheet_name}")
             st.dataframe(processed_data_dict[first_sheet_name].head())
             st.success("Selected columns extracted and consolidated successfully!")
+
+            # --- Apply DD/MM/YYYY formatting for the Raw Data Excel export (User Request) ---
+            # We create a copy so the original datetime objects remain for resampling calculation later.
+            raw_data_formatted_for_excel = {
+                sheet_name: df.copy() for sheet_name, df in processed_data_dict.items()
+            }
+            
+            # Format the Datetime index to DD/MM/YYYY HH:MM:SS string format
+            for df in raw_data_formatted_for_excel.values():
+                df.index = df.index.strftime('%d/%m/%Y %H:%M:%S')
+                df.index.name = 'Date & Time'
             
             # File Name Customization for raw data
             file_names_without_ext = [f.name.rsplit('.', 1)[0] for f in uploaded_files]
@@ -263,8 +274,8 @@ if __name__ == "__main__":
                 help="Enter the name for the final Excel file with raw extracted data."
             )
             
-            # Generate Excel file for raw data
-            excel_data_raw = to_excel(processed_data_dict)
+            # Generate Excel file for raw data using the formatted copy
+            excel_data_raw = to_excel(raw_data_formatted_for_excel)
             
             # Download Button for raw data
             st.download_button(
