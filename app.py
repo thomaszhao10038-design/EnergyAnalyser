@@ -116,19 +116,23 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
                     errors='coerce' # Convert non-numeric values to NaN
                 )
 
-            # 6. Combine Date and Time into a single column for cleaner Excel output (Formatted as string)
-            df_extracted.insert(0, 'Date & Time', 
-                                pd.to_datetime(
-                                    df_extracted['Date'] + ' ' + df_extracted['Time'], 
-                                    errors='coerce',
-                                    # Explicitly define the format (DD/MM/YYYY) to prevent misinterpretation
-                                    format='%d/%m/%Y %H:%M:%S'
-                                ).dt.strftime('%d/%m/%Y %H:%M:%S'))
-
-            # 7. Drop the original Date and Time columns
-            df_extracted = df_extracted.drop(columns=['Date', 'Time'])
+            # 6. Format Date and Time columns separately after parsing for correction
+            # First, parse the combined string to a datetime object, enforcing DD/MM/YYYY format.
+            datetime_series = pd.to_datetime(
+                df_extracted['Date'] + ' ' + df_extracted['Time'], 
+                errors='coerce',
+                # Explicitly define the format (DD/MM/YYYY) to prevent misinterpretation
+                format='%d/%m/%Y %H:%M:%S'
+            )
             
-            # 8. Clean the filename for the Excel sheet name
+            # Update 'Date' and 'Time' columns using the validated datetime series
+            # This ensures the date is correct and the format is consistent (DD/MM/YYYY)
+            df_extracted['Date'] = datetime_series.dt.strftime('%d/%m/%Y')
+            df_extracted['Time'] = datetime_series.dt.strftime('%H:%M:%S')
+            
+            # The columns are now separate: ['Date', 'Time', 'PSum (W)'].
+            
+            # 7. Clean the filename for the Excel sheet name
             sheet_name = filename.replace('.csv', '').replace('.', '_').strip()[:31]
             
             processed_data[sheet_name] = df_extracted
@@ -152,7 +156,7 @@ def to_excel(data_dict):
     # Use pandas ExcelWriter to write to BytesIO
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for sheet_name, df in data_dict.items():
-            # index=False because we already created the 'Date & Time' column
+            # index=False 
             df.to_excel(writer, sheet_name=sheet_name, index=False)
     
     return output.getvalue()
@@ -208,6 +212,7 @@ if __name__ == "__main__":
             # Display a preview of the first processed file
             first_sheet_name = next(iter(processed_data_dict))
             st.subheader(f"Preview of: {first_sheet_name}")
+            # Show a preview with the now separate Date and Time columns
             st.dataframe(processed_data_dict[first_sheet_name].head())
             st.success("Selected columns extracted and consolidated successfully!")
 
