@@ -116,8 +116,11 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
                 format='mixed' # Use mixed format to handle various date/time styles
             )
             
-            # 6. Set Datetime as index and clean up
-            df_extracted = df_extracted.set_index('Datetime').dropna(subset=['Datetime'])
+            # 6. Clean up, set index, and drop original columns
+            # FIX: Ensure dropping rows with NaT values happens BEFORE setting the index 
+            # to prevent KeyError: ['Datetime'] when using subset=['Datetime'].
+            df_extracted = df_extracted.dropna(subset=['Datetime']) 
+            df_extracted = df_extracted.set_index('Datetime')
             df_extracted = df_extracted.drop(columns=['Date', 'Time'])
             
             # 7. Data Cleaning: Convert PSum to numeric, handling potential errors
@@ -133,6 +136,7 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             processed_data[sheet_name] = df_extracted
             
         except Exception as e:
+            # Catch all other unexpected exceptions
             st.error(f"Error processing file **{filename}**. An unexpected error occurred. Error: {e}")
             continue
             
