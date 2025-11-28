@@ -121,7 +121,8 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
                                 pd.to_datetime(
                                     df_extracted['Date'] + ' ' + df_extracted['Time'], 
                                     errors='coerce',
-                                    format='mixed'
+                                    # Explicitly define the format (DD/MM/YYYY) to prevent misinterpretation
+                                    format='%d/%m/%Y %H:%M:%S'
                                 ).dt.strftime('%d/%m/%Y %H:%M:%S'))
 
             # 7. Drop the original Date and Time columns
