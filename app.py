@@ -29,7 +29,7 @@ def excel_col_to_index(col_str):
     return index - 1
 
 # --- App Title and Description ---
-st.title("⚡ EnergyAnalyser: Data Consolidation")
+st.title("⚡ EnergyAnalyser: Data Consolidation & Resampling")
 st.markdown("""
     Upload your raw energy data CSV files (up to 10) to extract **Date**, **Time**, and **PSum** and consolidate them into a single Excel file.
     
@@ -38,6 +38,8 @@ st.markdown("""
 
 # --- Constants for Data Processing ---
 HEADER_ROW_INDEX = 2 # The 3rd row (Date, Time, UA, UB, etc.)
+PSUM_OUTPUT_NAME = 'PSum (W)' 
+RESAMPLED_PSUM_NAME = '|PSum| Avg (W)'
 
 # --- User Configuration Section (Sidebar) ---
 st.sidebar.header("⚙️ Column Configuration")
@@ -67,7 +69,7 @@ ps_um_col_str = st.sidebar.text_input(
 def process_uploaded_files(uploaded_files, columns_config, header_index):
     """
     Reads multiple CSV files, extracts configured columns, cleans PSum data, 
-    and returns a dictionary of DataFrames.
+    and returns a dictionary of DataFrames indexed by Datetime.
     """
     processed_data = {}
     
@@ -78,15 +80,12 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
 
     col_indices = list(columns_config.keys())
     
-    # Define the PSum output column name for consistency in cleaning
-    ps_um_output_name = 'PSum (W)' 
     
     for uploaded_file in uploaded_files:
         filename = uploaded_file.name
         
         try:
             # 1. Read the CSV using the specified header row
-            # header=2: Use the 3rd row as column names
             df_full = pd.read_csv(
                 uploaded_file, 
                 header=header_index, 
@@ -97,25 +96,38 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             # 2. Check if DataFrame has enough columns
             max_index = max(col_indices)
             if df_full.shape[1] < max_index + 1:
-                 # Inform the user what the 1-based index (column letter) was that failed
-                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns. The column requested ({columns_config[max_index]} at index {max_index + 1}) is out of bounds. Please check the file structure or adjust the column letter in the sidebar.")
+                 col_name = columns_config.get(max_index, 'Unknown')
+                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns. The column requested ({col_name} at index {max_index + 1}) is out of bounds. Please check the file structure or adjust the column letter in the sidebar.")
                  continue
 
             # 3. Extract only the required columns by their index (iloc)
             df_extracted = df_full.iloc[:, col_indices].copy()
             
-            # 4. Rename the columns to the user-specified names
-            df_extracted.columns = columns_config.values()
+            # 4. Rename the columns temporarily to enable combine/clean
+            temp_cols = {
+                columns_config[k]: v for k, v in COLUMNS_TO_EXTRACT.items()
+            }
+            df_extracted.columns = temp_cols.values()
             
-            # 5. Data Cleaning: Convert PSum to numeric, handling potential errors
-            # Use the defined output name for cleaning
-            if ps_um_output_name in df_extracted.columns:
-                df_extracted[ps_um_output_name] = pd.to_numeric(
-                    df_extracted[ps_um_output_name], 
+            # 5. Combine Date and Time into a single Datetime column
+            df_extracted['Datetime'] = pd.to_datetime(
+                df_extracted['Date'] + ' ' + df_extracted['Time'], 
+                errors='coerce',
+                format='mixed' # Use mixed format to handle various date/time styles
+            )
+            
+            # 6. Set Datetime as index and clean up
+            df_extracted = df_extracted.set_index('Datetime').dropna(subset=['Datetime'])
+            df_extracted = df_extracted.drop(columns=['Date', 'Time'])
+            
+            # 7. Data Cleaning: Convert PSum to numeric, handling potential errors
+            if PSUM_OUTPUT_NAME in df_extracted.columns:
+                df_extracted[PSUM_OUTPUT_NAME] = pd.to_numeric(
+                    df_extracted[PSUM_OUTPUT_NAME], 
                     errors='coerce' # Convert non-numeric values to NaN
                 )
             
-            # 6. Clean the filename for the Excel sheet name
+            # 8. Clean the filename for the Excel sheet name
             sheet_name = filename.replace('.csv', '').replace('.', '_').strip()[:31]
             
             processed_data[sheet_name] = df_extracted
@@ -126,16 +138,44 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             
     return processed_data
 
+# --- New Function for Resampling ---
+def resample_10min_modulus(processed_data_dict):
+    """
+    Takes a dictionary of DataFrames, calculates the modulus of PSum (W),
+    and resamples the data to a 10-minute average.
+    """
+    resampled_data = {}
+    
+    for sheet_name, df in processed_data_dict.items():
+        if PSUM_OUTPUT_NAME in df.columns:
+            # 1. Calculate modulus (absolute value)
+            df[RESAMPLED_PSUM_NAME] = df[PSUM_OUTPUT_NAME].abs()
+            
+            # 2. Resample to 10-minute mean
+            # '10T' specifies 10 minutes.
+            df_resampled = df[RESAMPLED_PSUM_NAME].resample('10T').mean().to_frame()
+            
+            # 3. Drop rows where resampling resulted in NaN (e.g., end of data)
+            df_resampled = df_resampled.dropna()
+            
+            resampled_data[sheet_name] = df_resampled
+            
+    return resampled_data
+
+
 # --- Function to Generate Excel File for Download ---
 @st.cache_data
 def to_excel(data_dict):
     """
     Takes a dictionary of DataFrames and writes them to an in-memory Excel file.
+    The index (Datetime) is included as the first column.
     """
     output = BytesIO()
+    # Use pandas ExcelWriter to write to BytesIO
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for sheet_name, df in data_dict.items():
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            # index=True is necessary here because the Datetime is the index
+            df.to_excel(writer, sheet_name=sheet_name, index=True)
     
     return output.getvalue()
 
@@ -153,12 +193,11 @@ if __name__ == "__main__":
         COLUMNS_TO_EXTRACT = {
             date_col_index: 'Date',
             time_col_index: 'Time',
-            ps_um_col_index: 'PSum (W)' # Changed column name to include unit (W)
+            ps_um_col_index: PSUM_OUTPUT_NAME
         }
         
     except ValueError as e:
         st.error(f"Configuration Error: Invalid column letter entered: {e}. Please use valid Excel column notation (e.g., A, C, AA).")
-        # Use st.stop() to prevent the rest of the app from running with invalid config
         st.stop()
         
 
@@ -180,55 +219,92 @@ if __name__ == "__main__":
         # Display the column letters being used for user confirmation
         st.info(f"Processing {len(uploaded_files)} file(s) using columns: Date: {date_col_str.upper()}, Time: {time_col_str.upper()}, PSum: {ps_um_col_str.upper()}.")
         
-        # 1. Process data
+        # 1. Process data (Outputs time-indexed dataframes)
         processed_data_dict = process_uploaded_files(uploaded_files, COLUMNS_TO_EXTRACT, HEADER_ROW_INDEX)
         
         if processed_data_dict:
+            
+            # --- CONSOLIDATED RAW DATA SECTION ---
+            st.header("1. Consolidated Raw Data Output")
             
             # Display a preview of the first processed file
             first_sheet_name = next(iter(processed_data_dict))
             st.subheader(f"Preview of: {first_sheet_name}")
             st.dataframe(processed_data_dict[first_sheet_name].head())
-            st.success("All selected columns extracted and consolidated successfully!")
+            st.success("Selected columns extracted and consolidated successfully!")
             
-            # --- File Name Customization (Updated Logic) ---
-            # Generate a dynamic default filename based on uploaded files
+            # File Name Customization
             file_names_without_ext = [f.name.rsplit('.', 1)[0] for f in uploaded_files]
             
             if len(file_names_without_ext) > 1:
-                # Use a combined name for multiple files
                 first_name = file_names_without_ext[0]
-                # Keep the default filename manageable
                 if len(first_name) > 20:
                     first_name = first_name[:17] + "..."
-                    
-                default_filename = f"{first_name}_and_{len(file_names_without_ext) - 1}_More_Consolidated.xlsx"
+                default_filename_raw = f"{first_name}_and_{len(file_names_without_ext) - 1}_More_Consolidated.xlsx"
             elif file_names_without_ext:
-                # Use the single file name
-                default_filename = f"{file_names_without_ext[0]}_Consolidated.xlsx"
+                default_filename_raw = f"{file_names_without_ext[0]}_Consolidated.xlsx"
             else:
-                # Fallback
-                default_filename = "EnergyAnalyser_Consolidated_Data.xlsx"
+                default_filename_raw = "EnergyAnalyser_Consolidated_Data.xlsx"
 
 
-            custom_filename = st.text_input(
-                "Output Excel Filename:", # Label updated
-                value=default_filename,
-                key="output_filename_input",
-                help="Enter the name for the final Excel file, ensuring it ends with .xlsx"
+            custom_filename_raw = st.text_input(
+                "Output Excel Filename:",
+                value=default_filename_raw,
+                key="output_filename_input_raw",
+                help="Enter the name for the final Excel file with raw extracted data."
             )
             
-            # 2. Generate Excel file
-            excel_data = to_excel(processed_data_dict)
+            # Generate Excel file for raw data
+            excel_data_raw = to_excel(processed_data_dict)
             
-            # 3. Download Button
+            # Download Button for raw data
             st.download_button(
-                label="📥 Download Consolidated Data as Excel",
-                data=excel_data,
-                file_name=custom_filename, # Use the customized filename
+                label="📥 Download Consolidated Raw Data (Date, Time, PSum)",
+                data=excel_data_raw,
+                file_name=custom_filename_raw,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 help="Click to download the Excel file with one sheet per uploaded CSV file."
             )
+
+            # --- RESAMPLED DATA SECTION (NEW FEATURE) ---
+            st.header("2. 10-Minute Resampled Modulus Output")
             
+            # 1. Process for resampling
+            resampled_data_dict = resample_10min_modulus(processed_data_dict)
+            
+            if resampled_data_dict:
+                # Display a preview of the first resampled file
+                first_sheet_name_resampled = next(iter(resampled_data_dict))
+                st.subheader(f"Preview of: {first_sheet_name_resampled}")
+                st.dataframe(resampled_data_dict[first_sheet_name_resampled].head())
+                st.success("Data successfully resampled to 10-minute absolute mean!")
+                
+                # File Name Customization for resampled data
+                default_filename_resampled = default_filename_raw.replace("_Consolidated.xlsx", "_10min_Modulus.xlsx")
+                default_filename_resampled = default_filename_resampled.replace("_More_Consolidated.xlsx", "_More_10min_Modulus.xlsx")
+
+
+                custom_filename_resampled = st.text_input(
+                    "Output Excel Filename (10-min Modulus):",
+                    value=default_filename_resampled,
+                    key="output_filename_input_resampled",
+                    help="Enter the name for the final Excel file with 10-minute resampled data."
+                )
+                
+                # Generate Excel file for resampled data
+                excel_data_resampled = to_excel(resampled_data_dict)
+                
+                # Download Button for resampled data
+                st.download_button(
+                    label="📥 Download 10-Minute Modulus Data",
+                    data=excel_data_resampled,
+                    file_name=custom_filename_resampled,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Click to download the Excel file with the modulus of PSum averaged over 10-minute intervals."
+                )
+                
+            else:
+                st.warning("Could not resample data. Check if PSum (W) column contains valid numeric data.")
+
         else:
             st.error("No data could be successfully processed. Please review the error messages above and adjust the column letters if necessary.")
