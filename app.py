@@ -72,12 +72,20 @@ ps_um_col_str = st.sidebar.text_input(
 # --- New Configuration for Data Reading ---
 st.sidebar.header("📄 CSV File Settings")
 
+# New input for CSV Delimiter
+delimiter_input = st.sidebar.text_input(
+    "CSV Delimiter (Separator)",
+    value=',',
+    key='delimiter_input',
+    help="The character used to separate values in your CSV file (e.g., ',', ';', or '\\t' for tab)."
+)
+
 start_row_num = st.sidebar.number_input(
     "Data reading starts from (Row Number)",
     min_value=1,
-    value=3, # UPDATED DEFAULT: Changed from 4 to 3
+    value=3, 
     key='start_row_num',
-    help="The row number in the CSV file that contains the column headers (e.g., 'Date', 'Time', 'UA'). The default is Row 3." # Updated help text
+    help="The row number in the CSV file that contains the column headers (e.g., 'Date', 'Time', 'UA'). The default is Row 3." 
 )
 
 selected_date_format = st.sidebar.selectbox(
@@ -89,12 +97,12 @@ selected_date_format = st.sidebar.selectbox(
 )
 
 # --- Function to Process Data ---
-def process_uploaded_files(uploaded_files, columns_config, header_index, date_format_string):
+def process_uploaded_files(uploaded_files, columns_config, header_index, date_format_string, separator):
     """
     Reads multiple CSV files, extracts configured columns, cleans PSum data, 
     and returns a dictionary of DataFrames.
     
-    Accepts the 0-based header index and the datetime format string for parsing.
+    Accepts the 0-based header index, datetime format string, and the separator.
     """
     processed_data = {}
     
@@ -111,19 +119,20 @@ def process_uploaded_files(uploaded_files, columns_config, header_index, date_fo
         
         try:
             # 1. Read the CSV using the specified header row (header_index is 0-based)
+            # --- USE USER-DEFINED SEPARATOR HERE ---
             df_full = pd.read_csv(
                 uploaded_file, 
                 header=header_index, 
                 encoding='ISO-8859-1', 
-                low_memory=False
+                low_memory=False,
+                sep=separator # Use the selected separator
             )
             
             # 2. Check if DataFrame has enough columns
             max_index = max(col_indices)
             if df_full.shape[1] < max_index + 1:
-                 # Inform the user what the 1-based index (column letter) was that failed
-                 col_name = columns_config.get(max_index, 'Unknown')
-                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns. The column requested ({col_name} at index {max_index + 1}) is out of bounds. Please check the file structure or adjust the column letter in the sidebar.")
+                 # Inform the user that the file likely didn't parse correctly (common delimiter issue)
+                 st.error(f"File **{filename}** failed to read data correctly. It only has {df_full.shape[1]} columns. This usually means the **CSV Delimiter** ('{separator}') is incorrect. Please try changing the separator in the sidebar (e.g., to ';' or '\\t').")
                  continue
 
             # 3. Extract only the required columns by their index (iloc)
@@ -153,6 +162,13 @@ def process_uploaded_files(uploaded_files, columns_config, header_index, date_fo
                 format=date_format_string 
             )
             
+            # --- CHECK: Verify successful datetime parsing ---
+            valid_dates_count = datetime_series.count()
+            if valid_dates_count == 0:
+                st.warning(f"File **{filename}**: No valid dates could be parsed. Check your 'Date Format for Parsing' setting (**{selected_date_format}**) and ensure the 'Date' and 'Time' columns ({date_col_str.upper()} and {time_col_str.upper()}) contain valid data starting from Row {start_row_num}.")
+                continue
+            # ---------------------------------------------------
+
             # GUARANTEE SEPARATION: Create a new DataFrame explicitly with separated columns
             df_final = pd.DataFrame({
                 'Date': datetime_series.dt.strftime('%d/%m/%Y'), # Output Date is consistently DD/MM/YYYY
@@ -243,7 +259,6 @@ if __name__ == "__main__":
     header_row_index = int(start_row_num) - 1
     
     # Get the precise format string for parsing datetime objects
-    # This format string is used in pd.to_datetime to correctly interpret the date and time parts
     date_format_string = DATE_FORMAT_MAP.get(selected_date_format)
 
     # File Uploader
@@ -262,14 +277,15 @@ if __name__ == "__main__":
     if uploaded_files:
         
         # Display the column letters and settings being used for user confirmation
-        st.info(f"Processing {len(uploaded_files)} file(s) using columns: Date: {date_col_str.upper()}, Time: {time_col_str.upper()}, PSum: {ps_um_col_str.upper()}. Data reading starts from **Row {start_row_num}** using **{selected_date_format}** format.")
+        st.info(f"Processing {len(uploaded_files)} file(s) using columns: Date: {date_col_str.upper()}, Time: {time_col_str.upper()}, PSum: {ps_um_col_str.upper()}. Data reading starts from **Row {start_row_num}** using **{selected_date_format}** format and delimiter **'{delimiter_input}'**.")
         
         # 1. Process data 
         processed_data_dict = process_uploaded_files(
             uploaded_files, 
             COLUMNS_TO_EXTRACT, 
             header_row_index, 
-            date_format_string # Pass the new configuration
+            date_format_string,
+            delimiter_input # Pass the new configuration
         )
         
         if processed_data_dict:
