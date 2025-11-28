@@ -21,36 +21,42 @@ st.markdown("""
 HEADER_ROW_INDEX = 2 # The 3rd row (Date, Time, UA, UB, etc.)
 
 # --- User Configuration Section (Sidebar) ---
-st.sidebar.header("⚙️ Column Index Configuration")
-st.sidebar.markdown("Define the column index for each required data field (0-based).")
+st.sidebar.header("⚙️ Column Index Configuration (1-based)")
+st.sidebar.markdown("Define the column number (1 for A, 2 for B, etc.) for each data field.")
 
-# Get user-defined indices from the sidebar, with robust defaults
-date_col_index = st.sidebar.number_input(
-    "Date Column Index (Default: 0)", 
-    min_value=0, 
-    value=0, 
-    step=1, 
-    key='date_idx'
-)
-
-time_col_index = st.sidebar.number_input(
-    "Time Column Index (Default: 1)", 
-    min_value=0, 
+# Get user-defined indices (1-based for user clarity)
+date_col_1_based = st.sidebar.number_input(
+    "Date Column (A=1, B=2, ...) (Default: 1)", 
+    min_value=1, 
     value=1, 
     step=1, 
-    key='time_idx'
+    key='date_1_based'
 )
 
-ps_um_col_index = st.sidebar.number_input(
-    "PSum Column Index (Total Active Power) (Default: 40)", 
-    min_value=0, 
-    value=40, 
+time_col_1_based = st.sidebar.number_input(
+    "Time Column (A=1, B=2, ...) (Default: 2)", 
+    min_value=1, 
+    value=2, 
     step=1, 
-    key='psum_idx',
-    help="This is the 0-based column index. If the PSum data is in Excel column AO, the index is 40 (A=0, B=1, ... AO=40)."
+    key='time_1_based'
 )
 
-# Define the columns to extract using the user-configured values
+ps_um_col_1_based = st.sidebar.number_input(
+    "PSum Column (A=1, B=2, ...): Total Active Power (Default: 61)", 
+    min_value=1, 
+    # UPDATED DEFAULT: BI is column 61 (1-based)
+    value=61, 
+    step=1, 
+    key='psum_1_based',
+    help="PSum is expected in Excel column BI (the 61st column). Adjust if needed."
+)
+
+# Convert 1-based user input to 0-based indices for Pandas
+date_col_index = date_col_1_based - 1
+time_col_index = time_col_1_based - 1
+ps_um_col_index = ps_um_col_1_based - 1
+
+# Define the columns to extract using the 0-based calculated values
 COLUMNS_TO_EXTRACT = {
     date_col_index: 'Date',
     time_col_index: 'Time',
@@ -88,7 +94,9 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             # 2. Check if DataFrame has enough columns
             max_index = max(col_indices)
             if df_full.shape[1] < max_index + 1:
-                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns, but column index **{max_index}** was requested. Please check the file structure or adjust the indices in the sidebar.")
+                 # Inform the user what the 1-based index was that failed
+                 failed_1_based_index = max_index + 1
+                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns, but column number **{failed_1_based_index}** was requested. Please check the file structure or adjust the indices in the sidebar.")
                  continue
 
             # 3. Extract only the required columns by their index (iloc)
@@ -148,7 +156,8 @@ if __name__ == "__main__":
     # Processing and Download Button
     if uploaded_files:
         
-        st.info(f"Processing {len(uploaded_files)} file(s). Check the sidebar to confirm column indices are set correctly (Date: {date_col_index}, Time: {time_col_index}, PSum: {ps_um_col_index}).")
+        # Display the 1-based indices being used for user confirmation
+        st.info(f"Processing {len(uploaded_files)} file(s) using 1-based column indices: Date: {date_col_1_based} (A), Time: {time_col_1_based} (B), PSum: {ps_um_col_1_based} (BI).")
         
         # 1. Process data
         processed_data_dict = process_uploaded_files(uploaded_files, COLUMNS_TO_EXTRACT, HEADER_ROW_INDEX)
