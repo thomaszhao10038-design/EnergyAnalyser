@@ -9,6 +9,25 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- Helper Function for Excel Column Conversion ---
+def excel_col_to_index(col_str):
+    """
+    Converts an Excel column string (e.g., 'A', 'AA', 'BI') to a 0-based column index.
+    Raises a ValueError if the string is invalid.
+    """
+    col_str = col_str.upper().strip()
+    index = 0
+    # A=1, B=2, ..., Z=26
+    for char in col_str:
+        if 'A' <= char <= 'Z':
+            # Calculate the 1-based index (e.g., 'B' is 2, 'AA' is 27)
+            index = index * 26 + (ord(char) - ord('A') + 1)
+        else:
+            raise ValueError(f"Invalid character in column string: {col_str}")
+    
+    # Convert 1-based index to 0-based index for Pandas (A=0, B=1)
+    return index - 1
+
 # --- App Title and Description ---
 st.title("⚡ EnergyAnalyser: Data Consolidation")
 st.markdown("""
@@ -21,47 +40,28 @@ st.markdown("""
 HEADER_ROW_INDEX = 2 # The 3rd row (Date, Time, UA, UB, etc.)
 
 # --- User Configuration Section (Sidebar) ---
-st.sidebar.header("⚙️ Column Index Configuration (1-based)")
-st.sidebar.markdown("Define the column number (1 for A, 2 for B, etc.) for each data field.")
+st.sidebar.header("⚙️ Column Configuration (A, B, C...)")
+st.sidebar.markdown("Define the column letter for each data field.")
 
-# Get user-defined indices (1-based for user clarity)
-date_col_1_based = st.sidebar.number_input(
-    "Date Column (A=1, B=2, ...) (Default: 1)", 
-    min_value=1, 
-    value=1, 
-    step=1, 
-    key='date_1_based'
+# Get user-defined column letters (A, B, C...)
+date_col_str = st.sidebar.text_input(
+    "Date Column Letter (Default: A)", 
+    value='A', 
+    key='date_col_str'
 )
 
-time_col_1_based = st.sidebar.number_input(
-    "Time Column (A=1, B=2, ...) (Default: 2)", 
-    min_value=1, 
-    value=2, 
-    step=1, 
-    key='time_1_based'
+time_col_str = st.sidebar.text_input(
+    "Time Column Letter (Default: B)", 
+    value='B', 
+    key='time_col_str'
 )
 
-ps_um_col_1_based = st.sidebar.number_input(
-    "PSum Column (A=1, B=2, ...): Total Active Power (Default: 61)", 
-    min_value=1, 
-    # UPDATED DEFAULT: BI is column 61 (1-based)
-    value=61, 
-    step=1, 
-    key='psum_1_based',
-    help="PSum is expected in Excel column BI (the 61st column). Adjust if needed."
+ps_um_col_str = st.sidebar.text_input(
+    "PSum Column Letter (Default: BI)", 
+    value='BI', 
+    key='psum_col_str',
+    help="PSum (Total Active Power) is expected in Excel column BI. Adjust if needed."
 )
-
-# Convert 1-based user input to 0-based indices for Pandas
-date_col_index = date_col_1_based - 1
-time_col_index = time_col_1_based - 1
-ps_um_col_index = ps_um_col_1_based - 1
-
-# Define the columns to extract using the 0-based calculated values
-COLUMNS_TO_EXTRACT = {
-    date_col_index: 'Date',
-    time_col_index: 'Time',
-    ps_um_col_index: 'PSum'
-}
 
 # --- Function to Process Data ---
 def process_uploaded_files(uploaded_files, columns_config, header_index):
@@ -94,9 +94,8 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             # 2. Check if DataFrame has enough columns
             max_index = max(col_indices)
             if df_full.shape[1] < max_index + 1:
-                 # Inform the user what the 1-based index was that failed
-                 failed_1_based_index = max_index + 1
-                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns, but column number **{failed_1_based_index}** was requested. Please check the file structure or adjust the indices in the sidebar.")
+                 # Inform the user what the 1-based index (column letter) was that failed
+                 st.error(f"File **{filename}** has only {df_full.shape[1]} columns. The column requested ({columns_config[max_index]} at index {max_index + 1}) is out of bounds. Please check the file structure or adjust the column letter in the sidebar.")
                  continue
 
             # 3. Extract only the required columns by their index (iloc)
@@ -106,7 +105,6 @@ def process_uploaded_files(uploaded_files, columns_config, header_index):
             df_extracted.columns = columns_config.values()
             
             # 5. Data Cleaning: Convert PSum to numeric, handling potential errors
-            # We assume the user has configured the correct PSum column index
             if 'PSum' in df_extracted.columns:
                 df_extracted['PSum'] = pd.to_numeric(
                     df_extracted['PSum'], 
@@ -141,6 +139,24 @@ def to_excel(data_dict):
 # --- Main Streamlit Logic ---
 if __name__ == "__main__":
     
+    # Try to convert column letters to 0-based indices
+    try:
+        date_col_index = excel_col_to_index(date_col_str)
+        time_col_index = excel_col_to_index(time_col_str)
+        ps_um_col_index = excel_col_to_index(ps_um_col_str)
+        
+        COLUMNS_TO_EXTRACT = {
+            date_col_index: 'Date',
+            time_col_index: 'Time',
+            ps_um_col_index: 'PSum'
+        }
+        
+    except ValueError as e:
+        st.error(f"Configuration Error: Invalid column letter entered: {e}. Please use valid Excel column notation (e.g., A, C, AA).")
+        # Use st.stop() to prevent the rest of the app from running with invalid config
+        st.stop()
+        
+
     # File Uploader
     uploaded_files = st.file_uploader(
         "Choose up to 10 CSV files", 
@@ -156,8 +172,8 @@ if __name__ == "__main__":
     # Processing and Download Button
     if uploaded_files:
         
-        # Display the 1-based indices being used for user confirmation
-        st.info(f"Processing {len(uploaded_files)} file(s) using 1-based column indices: Date: {date_col_1_based} (A), Time: {time_col_1_based} (B), PSum: {ps_um_col_1_based} (BI).")
+        # Display the column letters being used for user confirmation
+        st.info(f"Processing {len(uploaded_files)} file(s) using columns: Date: {date_col_str.upper()} (Index: {date_col_index}), Time: {time_col_str.upper()} (Index: {time_col_index}), PSum: {ps_um_col_str.upper()} (Index: {ps_um_col_index}).")
         
         # 1. Process data
         processed_data_dict = process_uploaded_files(uploaded_files, COLUMNS_TO_EXTRACT, HEADER_ROW_INDEX)
@@ -183,4 +199,4 @@ if __name__ == "__main__":
             )
             
         else:
-            st.error("No data could be successfully processed. Please review the error messages above and adjust the column indices if necessary.")
+            st.error("No data could be successfully processed. Please review the error messages above and adjust the column letters if necessary.")
